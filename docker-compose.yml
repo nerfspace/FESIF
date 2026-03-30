@@ -1,0 +1,60 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  poller:
+    build: .
+    command: node src/poller/index.js
+    restart: unless-stopped
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DB_PATH: /data/fesif.db
+      POLL_INTERVAL_MIN: 5
+      POLL_INTERVAL_MAX: 15
+    volumes:
+      - db_data:/data
+
+  analyzer:
+    build: .
+    command: node src/analyzer/index.js
+    restart: unless-stopped
+    depends_on:
+      - redis
+    deploy:
+      replicas: 2          # run two analyzer workers in parallel
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DB_PATH: /data/fesif.db
+    volumes:
+      - db_data:/data
+
+  api:
+    build: .
+    command: node src/api/index.js
+    restart: unless-stopped
+    depends_on:
+      - redis
+    ports:
+      - "3000:3000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DB_PATH: /data/fesif.db
+      API_PORT: 3000
+    volumes:
+      - db_data:/data
+
+volumes:
+  redis_data:
+  db_data:
