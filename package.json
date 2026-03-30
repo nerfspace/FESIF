@@ -1,0 +1,23 @@
+{
+  "name": "fesif",
+  "version": "1.0.0",
+  "description": "eBay arbitrage opportunity monitor",
+  "private": true,
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start:poller": "node src/poller/index.js",
+    "start:analyzer": "node src/analyzer/index.js",
+    "start:api": "node src/api/index.js",
+    "test": "node --experimental-sqlite --test src/shared/scoring.test.js src/shared/scraper.test.js src/shared/db.test.js"
+  },
+  "dependencies": {
+    "axios": "1.13.5",
+    "bullmq": "^5.42.0",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "ioredis": "^5.3.2"
+  }
+}
