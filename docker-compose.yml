@@ -21,6 +21,7 @@ services:
       DB_PATH: /data/fesif.db
       POLL_INTERVAL_MIN: 5
       POLL_INTERVAL_MAX: 15
+      EBAY_SEARCH_KEYWORD: "${EBAY_SEARCH_KEYWORD:-}"
     volumes:
       - db_data:/data
 
