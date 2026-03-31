@@ -129,7 +129,7 @@ All sub-scores are normalised to [0, 1] before weighting.
 | `REDIS_HOST` | `127.0.0.1` | Redis hostname |
 | `REDIS_PORT` | `6379` | Redis port |
 | `DB_PATH` | `./fesif.db` | SQLite database file path |
-| `EBAY_SEARCH_KEYWORD` | *(empty)* | Keyword to narrow eBay search |
+| `EBAY_SEARCH_KEYWORD` | *(empty)* | Comma-separated keywords to search (e.g. `iphone,gpu,macbook pro`). The poller cycles through them round-robin. Blank = all categories |
 | `POLL_INTERVAL_MIN` | `5` | Minimum seconds between polls |
 | `POLL_INTERVAL_MAX` | `15` | Maximum seconds between polls |
 | `MIN_DEAL_SCORE` | `80` | Default minimum score for `/deals` |

@@ -4,7 +4,8 @@
  * Continuously polls eBay for newly listed items and pushes them to the queue.
  *
  * Configuration (via environment variables):
- *   EBAY_SEARCH_KEYWORD  – search term (default: empty → all categories)
+ *   EBAY_SEARCH_KEYWORD  – comma-separated search terms (default: empty → all categories)
+ *                          e.g. "iphone,gpu,macbook pro" cycles round-robin across keywords
  *   POLL_INTERVAL_MIN    – minimum seconds between polls  (default: 5)
  *   POLL_INTERVAL_MAX    – maximum seconds between polls  (default: 15)
  *   REDIS_HOST / REDIS_PORT
@@ -15,14 +16,32 @@ require('dotenv').config();
 const { fetchNewListings } = require('../shared/scraper');
 const { createQueue, enqueueListings } = require('../shared/queue');
 
-const KEYWORD = process.env.EBAY_SEARCH_KEYWORD || '';
+/**
+ * Parse EBAY_SEARCH_KEYWORD into an array of trimmed, non-empty keywords.
+ * Falls back to [''] (single empty-string keyword) to preserve blank-keyword behaviour.
+ * @param {string|undefined} raw
+ * @returns {string[]}
+ */
+function parseKeywords(raw) {
+  const keywords = (raw || '')
+    .split(',')
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0);
+  return keywords.length > 0 ? keywords : [''];
+}
+
+const KEYWORDS = parseKeywords(process.env.EBAY_SEARCH_KEYWORD);
 const POLL_MIN = Number(process.env.POLL_INTERVAL_MIN) || 5;
 const POLL_MAX = Number(process.env.POLL_INTERVAL_MAX) || 15;
+
+/** Round-robin index into KEYWORDS */
+let keywordIndex = 0;
 
 /** IDs seen during the current process lifetime (in-memory deduplication) */
 const seenIds = new Set();
 
-const queue = createQueue();
+/** BullMQ queue – created lazily so tests can require this module without Redis */
+let queue;
 
 /**
  * Sleep for a random duration between [minMs, maxMs].
@@ -37,14 +56,20 @@ function randomSleep(minMs, maxMs) {
 
 /**
  * Run one poll cycle:
- *   1. Fetch eBay search results (first page, sorted by newest)
- *   2. Find listings not seen before
- *   3. Enqueue each new listing
+ *   1. Pick the next keyword (round-robin)
+ *   2. Fetch eBay search results (first page, sorted by newest)
+ *   3. Find listings not seen before
+ *   4. Enqueue each new listing
  */
 async function pollOnce() {
+  const keyword = KEYWORDS[keywordIndex];
+  keywordIndex = (keywordIndex + 1) % KEYWORDS.length;
+
+  console.log(`[poller] Polling keyword="${keyword}"`);
+
   let listings;
   try {
-    listings = await fetchNewListings(KEYWORD);
+    listings = await fetchNewListings(keyword);
   } catch (err) {
     console.error('[poller] Failed to fetch listings:', err.message);
     return;
@@ -57,6 +82,8 @@ async function pollOnce() {
   }
 
   const timestamp_detected = new Date().toISOString();
+
+  if (!queue) queue = createQueue();
 
   let enqueued = 0;
   for (const listing of newListings) {
@@ -80,7 +107,7 @@ async function pollOnce() {
  */
 async function run() {
   console.log(
-    `[poller] Starting. keyword="${KEYWORD}", interval=${POLL_MIN}–${POLL_MAX}s`
+    `[poller] Starting. keywords=${JSON.stringify(KEYWORDS)}, interval=${POLL_MIN}–${POLL_MAX}s`
   );
 
   // eslint-disable-next-line no-constant-condition
@@ -98,4 +125,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { pollOnce, randomSleep };
+module.exports = { pollOnce, randomSleep, parseKeywords, KEYWORDS: Object.freeze([...KEYWORDS]) };

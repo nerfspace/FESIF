@@ -10,7 +10,7 @@
     "start:poller": "node src/poller/index.js",
     "start:analyzer": "node src/analyzer/index.js",
     "start:api": "node src/api/index.js",
-    "test": "node --experimental-sqlite --test src/shared/scoring.test.js src/shared/scraper.test.js src/shared/db.test.js"
+    "test": "node --experimental-sqlite --test src/shared/scoring.test.js src/shared/scraper.test.js src/shared/db.test.js src/poller/poller.test.js"
   },
   "dependencies": {
     "axios": "1.13.5",
