@@ -26,6 +26,11 @@ function getDb() {
 
   db = new DatabaseSync(DB_PATH);
 
+  // Enable WAL mode for concurrent read access and serialized writes with
+  // automatic retry instead of immediately failing with "database is locked".
+  db.exec('PRAGMA journal_mode=WAL;');
+  db.exec('PRAGMA busy_timeout=5000;');
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS listings (
       listing_id        TEXT PRIMARY KEY,

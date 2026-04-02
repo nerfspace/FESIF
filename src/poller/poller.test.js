@@ -7,7 +7,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { parseKeywords } = require('./index');
+const { parseKeywords, calcPollInterval } = require('./index');
 
 // ---------------------------------------------------------------------------
 // parseKeywords()
@@ -77,5 +77,41 @@ describe('round-robin keyword cycling', () => {
       assert.equal(keywords[idx], 'iphone');
       idx = (idx + 1) % keywords.length;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// calcPollInterval()
+// ---------------------------------------------------------------------------
+describe('calcPollInterval', () => {
+  test('returns a positive number', () => {
+    const interval = calcPollInterval(5000, 7);
+    assert.ok(interval > 0, 'Interval should be positive');
+  });
+
+  test('more keywords → longer interval', () => {
+    const i1 = calcPollInterval(5000, 1);
+    const i7 = calcPollInterval(5000, 7);
+    assert.ok(i7 > i1, 'More keywords should produce a longer interval');
+  });
+
+  test('larger daily limit → shorter interval', () => {
+    const i5k  = calcPollInterval(5000, 5);
+    const i10k = calcPollInterval(10000, 5);
+    assert.ok(i5k > i10k, 'Larger limit should produce a shorter interval');
+  });
+
+  test('produces ~403 s for 5000 calls / 7 keywords', () => {
+    // 30% of 5000 = 1500 polling calls
+    // 1500 / 7 = 214 cycles/day (floor)
+    // 86400 / 214 = ~403.7 → ceil = 404
+    const interval = calcPollInterval(5000, 7);
+    assert.ok(interval >= 400 && interval <= 410, `Expected ~403-404, got ${interval}`);
+  });
+
+  test('falls back to 3600 when limit is too low to afford even one cycle', () => {
+    // 30% of 1 call = 0 (floored), which triggers the safety fallback
+    const interval = calcPollInterval(1, 100);
+    assert.equal(interval, 3600);
   });
 });

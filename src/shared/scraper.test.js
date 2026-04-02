@@ -12,6 +12,7 @@ const {
   parseFeedback,
   parseSearchResults,
   parseSoldPrices,
+  parseFindingApiResponse,
   parseApiResponse,
   randomUserAgent,
   _tokenCache,
@@ -305,5 +306,59 @@ describe('_tokenCache', () => {
     _tokenCache.token     = 'old-token';
     _tokenCache.expiresAt = Date.now() - 1; // already expired
     assert.ok(_tokenCache.expiresAt < Date.now(), 'Token should be considered expired');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseFindingApiResponse() – eBay Finding API JSON parsing
+// ---------------------------------------------------------------------------
+describe('parseFindingApiResponse', () => {
+  test('returns empty array for empty/missing response', () => {
+    assert.deepEqual(parseFindingApiResponse({}), []);
+    assert.deepEqual(parseFindingApiResponse(null), []);
+    assert.deepEqual(parseFindingApiResponse(undefined), []);
+  });
+
+  test('returns empty array when searchResult has no items', () => {
+    const data = {
+      findCompletedItemsResponse: [{ searchResult: [{ item: [] }] }],
+    };
+    assert.deepEqual(parseFindingApiResponse(data), []);
+  });
+
+  test('parses a typical Finding API response', () => {
+    const data = {
+      findCompletedItemsResponse: [{
+        searchResult: [{
+          item: [
+            { sellingStatus: [{ currentPrice: [{ '__value__': '249.99' }] }] },
+            { sellingStatus: [{ currentPrice: [{ '__value__': '199.00' }] }] },
+            { sellingStatus: [{ currentPrice: [{ '__value__': '275.50' }] }] },
+          ],
+        }],
+      }],
+    };
+    const prices = parseFindingApiResponse(data);
+    assert.equal(prices.length, 3);
+    assert.ok(prices.includes(249.99));
+    assert.ok(prices.includes(199));
+    assert.ok(prices.includes(275.5));
+  });
+
+  test('skips items with zero or missing price', () => {
+    const data = {
+      findCompletedItemsResponse: [{
+        searchResult: [{
+          item: [
+            { sellingStatus: [{ currentPrice: [{ '__value__': '0.00' }] }] },
+            { sellingStatus: [{ currentPrice: [{ '__value__': '50.00' }] }] },
+            { sellingStatus: [{}] },
+          ],
+        }],
+      }],
+    };
+    const prices = parseFindingApiResponse(data);
+    assert.equal(prices.length, 1);
+    assert.equal(prices[0], 50);
   });
 });
