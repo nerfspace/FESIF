@@ -15,6 +15,7 @@ require('dotenv').config();
 
 const { fetchNewListings } = require('../shared/scraper');
 const { createQueue, enqueueListings } = require('../shared/queue');
+const { checkAndIncrement } = require('../shared/rateLimiter');
 
 /**
  * Parse EBAY_SEARCH_KEYWORD into an array of trimmed, non-empty keywords.
@@ -66,6 +67,15 @@ async function pollOnce() {
   keywordIndex = (keywordIndex + 1) % KEYWORDS.length;
 
   console.log(`[poller] Polling keyword="${keyword}"`);
+
+  // When using the Browse API, check the polling budget before making the call.
+  if (process.env.EBAY_APP_ID) {
+    const allowed = await checkAndIncrement('poll');
+    if (!allowed) {
+      console.warn('[poller] Polling budget exhausted for today — skipping poll cycle');
+      return;
+    }
+  }
 
   let listings;
   try {

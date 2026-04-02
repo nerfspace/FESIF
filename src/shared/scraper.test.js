@@ -13,6 +13,7 @@ const {
   parseSearchResults,
   parseSoldPrices,
   parseApiResponse,
+  parseFindingApiSoldPrices,
   randomUserAgent,
   _tokenCache,
 } = require('./scraper');
@@ -275,6 +276,101 @@ describe('parseApiResponse', () => {
     assert.equal(results.length, 2);
     assert.equal(results[0].listing_id, '100000000001');
     assert.equal(results[1].listing_id, '100000000002');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseFindingApiSoldPrices() – eBay Finding API JSON parsing
+// ---------------------------------------------------------------------------
+describe('parseFindingApiSoldPrices', () => {
+  test('returns empty array for missing or malformed response', () => {
+    assert.deepEqual(parseFindingApiSoldPrices({}), []);
+    assert.deepEqual(parseFindingApiSoldPrices({ findCompletedItemsResponse: [] }), []);
+    assert.deepEqual(parseFindingApiSoldPrices(null), []);
+  });
+
+  test('parses a typical Finding API response with sold items', () => {
+    const data = {
+      findCompletedItemsResponse: [
+        {
+          searchResult: [
+            {
+              item: [
+                {
+                  itemId: ['123456789012'],
+                  title: ['Apple iPhone 14 Pro'],
+                  sellingStatus: [
+                    {
+                      convertedCurrentPrice: [
+                        { '@currencyId': 'USD', __value__: '399.99' },
+                      ],
+                    },
+                  ],
+                },
+                {
+                  itemId: ['222222222222'],
+                  title: ['Apple iPhone 14 Pro (parts)'],
+                  sellingStatus: [
+                    {
+                      convertedCurrentPrice: [
+                        { '@currencyId': 'USD', __value__: '250.00' },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const prices = parseFindingApiSoldPrices(data);
+    assert.equal(prices.length, 2);
+    assert.ok(prices.includes(399.99));
+    assert.ok(prices.includes(250));
+  });
+
+  test('skips items where price is 0 or unparseable', () => {
+    const data = {
+      findCompletedItemsResponse: [
+        {
+          searchResult: [
+            {
+              item: [
+                {
+                  itemId: ['111111111111'],
+                  sellingStatus: [
+                    { convertedCurrentPrice: [{ __value__: '0.00' }] },
+                  ],
+                },
+                {
+                  itemId: ['222222222222'],
+                  sellingStatus: [{}],   // no convertedCurrentPrice
+                },
+                {
+                  itemId: ['333333333333'],
+                  sellingStatus: [
+                    { convertedCurrentPrice: [{ __value__: '75.50' }] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const prices = parseFindingApiSoldPrices(data);
+    assert.equal(prices.length, 1);
+    assert.equal(prices[0], 75.5);
+  });
+
+  test('returns empty array when searchResult has no items', () => {
+    const data = {
+      findCompletedItemsResponse: [
+        { searchResult: [{ '@count': '0' }] },
+      ],
+    };
+    assert.deepEqual(parseFindingApiSoldPrices(data), []);
   });
 });
 
