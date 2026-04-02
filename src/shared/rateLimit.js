@@ -14,7 +14,7 @@ const DAILY_LIMIT = Number(process.env.EBAY_DAILY_API_LIMIT) || 5000;
 
 // In-memory fallback counter (used when Redis is not reachable)
 let _memCounter = 0;
-let _memDate    = _todayKey();
+let _memDate = _todayKey();
 
 function _todayKey() {
   return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
