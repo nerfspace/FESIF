@@ -12,6 +12,7 @@ const {
   parseFeedback,
   parseSearchResults,
   parseSoldPrices,
+  parseFindingApiResponse,
   parseApiResponse,
   randomUserAgent,
   _tokenCache,
@@ -275,6 +276,74 @@ describe('parseApiResponse', () => {
     assert.equal(results.length, 2);
     assert.equal(results[0].listing_id, '100000000001');
     assert.equal(results[1].listing_id, '100000000002');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseFindingApiResponse() – eBay Finding API JSON parsing
+// ---------------------------------------------------------------------------
+describe('parseFindingApiResponse', () => {
+  test('returns empty array for undefined or empty input', () => {
+    assert.deepEqual(parseFindingApiResponse(undefined), []);
+    assert.deepEqual(parseFindingApiResponse({}), []);
+    assert.deepEqual(parseFindingApiResponse({ findCompletedItemsResponse: [{}] }), []);
+  });
+
+  test('parses a single sold item price', () => {
+    const data = {
+      findCompletedItemsResponse: [{
+        searchResult: [{
+          item: [{
+            sellingStatus: [{ currentPrice: [{ '__value__': '399.99', '@currencyId': 'USD' }] }],
+          }],
+        }],
+      }],
+    };
+    const prices = parseFindingApiResponse(data);
+    assert.equal(prices.length, 1);
+    assert.equal(prices[0], 399.99);
+  });
+
+  test('parses multiple sold item prices', () => {
+    const makeItem = (val) => ({
+      sellingStatus: [{ currentPrice: [{ '__value__': val, '@currencyId': 'USD' }] }],
+    });
+    const data = {
+      findCompletedItemsResponse: [{
+        searchResult: [{
+          item: [makeItem('100.00'), makeItem('120.50'), makeItem('90.00')],
+        }],
+      }],
+    };
+    const prices = parseFindingApiResponse(data);
+    assert.equal(prices.length, 3);
+    assert.ok(prices.includes(100));
+    assert.ok(prices.includes(120.5));
+    assert.ok(prices.includes(90));
+  });
+
+  test('skips items with zero or missing price', () => {
+    const data = {
+      findCompletedItemsResponse: [{
+        searchResult: [{
+          item: [
+            { sellingStatus: [{ currentPrice: [{ '__value__': '0.00' }] }] },
+            { sellingStatus: [{}] },
+            { sellingStatus: [{ currentPrice: [{ '__value__': '50.00' }] }] },
+          ],
+        }],
+      }],
+    };
+    const prices = parseFindingApiResponse(data);
+    assert.equal(prices.length, 1);
+    assert.equal(prices[0], 50);
+  });
+
+  test('returns empty array when searchResult has no items', () => {
+    const data = {
+      findCompletedItemsResponse: [{ searchResult: [{ '@count': '0' }] }],
+    };
+    assert.deepEqual(parseFindingApiResponse(data), []);
   });
 });
 

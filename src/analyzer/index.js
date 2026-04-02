@@ -4,9 +4,10 @@
  * BullMQ worker that consumes listing jobs and scores them.
  *
  * For each job:
- *   1. Fetch comparable sold prices from eBay
- *   2. Run the full scoring pipeline
- *   3. Persist listing + score to SQLite
+ *   1. Check daily API budget (if EBAY_APP_ID is set)
+ *   2. Fetch comparable sold prices from eBay (skipped if budget exhausted)
+ *   3. Run the full scoring pipeline
+ *   4. Persist listing + score to SQLite
  */
 
 require('dotenv').config();
@@ -15,6 +16,7 @@ const { createWorker } = require('../shared/queue');
 const { fetchSoldPrices } = require('../shared/scraper');
 const { scoreListingFull } = require('../shared/scoring');
 const { upsertListing, upsertScore } = require('../shared/db');
+const { canMakeApiCall, incrementApiCounter } = require('../shared/rateLimit');
 
 /**
  * Process a single listing job.
@@ -37,16 +39,41 @@ async function processJob(job) {
 
   // Step 3 – Fetch comparable sold prices
   let soldPrices = [];
-  try {
-    // Build a focused query from the title (first 6 words often captures brand + model)
-    const query = title.split(/\s+/).slice(0, 6).join(' ');
-    soldPrices = await fetchSoldPrices(query);
-    console.log(
-      `[analyzer] ${listing_id}: ${soldPrices.length} comps found (query="${query}")`
-    );
-  } catch (err) {
-    console.warn(`[analyzer] Could not fetch comps for ${listing_id}: ${err.message}`);
-    // Continue with empty soldPrices – score will reflect low confidence
+  const appId = process.env.EBAY_APP_ID;
+
+  if (appId) {
+    // Use Finding API – check budget first
+    if (await canMakeApiCall()) {
+      // Increment before the call: eBay counts the HTTP request against the
+      // quota regardless of the outcome, and pre-incrementing prevents multiple
+      // containers from simultaneously exceeding the budget.
+      await incrementApiCounter();
+      try {
+        const query = title.split(/\s+/).slice(0, 6).join(' ');
+        soldPrices = await fetchSoldPrices(query);
+        console.log(
+          `[analyzer] ${listing_id}: ${soldPrices.length} comps found (query="${query}")`
+        );
+      } catch (err) {
+        console.warn(`[analyzer] Could not fetch comps for ${listing_id}: ${err.message}`);
+        // Continue with empty soldPrices – score will reflect low confidence
+      }
+    } else {
+      console.warn(
+        `[analyzer] Comps budget exhausted, skipping sold price lookup for ${listing_id}`
+      );
+    }
+  } else {
+    // HTML scraping fallback – no budget check needed
+    try {
+      const query = title.split(/\s+/).slice(0, 6).join(' ');
+      soldPrices = await fetchSoldPrices(query);
+      console.log(
+        `[analyzer] ${listing_id}: ${soldPrices.length} comps found (query="${query}")`
+      );
+    } catch (err) {
+      console.warn(`[analyzer] Could not fetch comps for ${listing_id}: ${err.message}`);
+    }
   }
 
   // Steps 4–11 – full scoring pipeline

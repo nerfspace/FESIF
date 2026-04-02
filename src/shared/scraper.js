@@ -325,11 +325,14 @@ function parseSearchResults(html) {
 // ---------------------------------------------------------------------------
 // Fetch sold / completed listings for comparable sales (comps)
 // ---------------------------------------------------------------------------
+
 /**
- * @param {string} query  Search string (brand + model)
- * @returns {Promise<number[]>}  Array of sold prices
+ * HTML-scraping fallback for sold prices (used when API keys are absent).
+ *
+ * @param {string} query
+ * @returns {Promise<number[]>}
  */
-async function fetchSoldPrices(query) {
+async function fetchSoldPricesHtml(query) {
   const params = new URLSearchParams({
     _nkw: query,
     LH_Sold: '1',
@@ -342,6 +345,75 @@ async function fetchSoldPrices(query) {
 
   const { data: html } = await axios.get(url, buildAxiosConfig());
   return parseSoldPrices(html);
+}
+
+/**
+ * eBay Finding API – fetch completed/sold listings.
+ * Uses the findCompletedItems endpoint with the same EBAY_APP_ID.
+ *
+ * @param {string} query
+ * @returns {Promise<number[]>}
+ */
+async function fetchSoldPricesApi(query) {
+  const appId = process.env.EBAY_APP_ID;
+  const params = new URLSearchParams({
+    'OPERATION-NAME':             'findCompletedItems',
+    'SERVICE-VERSION':            '1.0.0',
+    'SECURITY-APPNAME':           appId,
+    'RESPONSE-DATA-FORMAT':       'JSON',
+    'keywords':                   query,
+    'itemFilter(0).name':         'SoldItemsOnly',
+    'itemFilter(0).value':        'true',
+    'paginationInput.entriesPerPage': '40',
+    'sortOrder':                  'EndTimeSoonest',
+  });
+  const url = `https://svcs.ebay.com/services/search/FindingService/v1?${params}`;
+
+  const { data } = await axios.get(url, { timeout: 15_000 });
+  return parseFindingApiResponse(data);
+}
+
+/**
+ * Fetch sold prices.  Uses the eBay Finding API when EBAY_APP_ID is set,
+ * otherwise falls back to HTML scraping.
+ *
+ * @param {string} query  Search string (brand + model)
+ * @returns {Promise<number[]>}  Array of sold prices
+ */
+async function fetchSoldPrices(query) {
+  const appId = process.env.EBAY_APP_ID;
+
+  if (!appId) {
+    console.warn(
+      '[scraper] EBAY_APP_ID not set – falling back to HTML scraping for sold prices. ' +
+      'Set EBAY_APP_ID in .env for better reliability.'
+    );
+    return fetchSoldPricesHtml(query);
+  }
+
+  return fetchSoldPricesApi(query);
+}
+
+/**
+ * Parse sold prices from eBay Finding API JSON response.
+ * Exported for unit testing.
+ *
+ * @param {object} data  Parsed JSON from the Finding API
+ * @returns {number[]}
+ */
+function parseFindingApiResponse(data) {
+  try {
+    const response = data?.findCompletedItemsResponse?.[0];
+    const items = response?.searchResult?.[0]?.item || [];
+    return items
+      .map((item) => {
+        const val = item?.sellingStatus?.[0]?.currentPrice?.[0]?.['__value__'];
+        return val ? parseFloat(val) : 0;
+      })
+      .filter((p) => p > 0);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -373,6 +445,7 @@ module.exports = {
   fetchSoldPrices,
   parseSearchResults,
   parseSoldPrices,
+  parseFindingApiResponse,
   parseApiResponse,
   parsePrice,
   parseFeedback,
