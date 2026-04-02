@@ -130,11 +130,31 @@ All sub-scores are normalised to [0, 1] before weighting.
 | `REDIS_PORT` | `6379` | Redis port |
 | `DB_PATH` | `./fesif.db` | SQLite database file path |
 | `EBAY_SEARCH_KEYWORD` | *(empty)* | Comma-separated keywords to search (e.g. `iphone,gpu,macbook pro`). The poller cycles through them round-robin. Blank = all categories |
+| `EBAY_APP_ID` | *(empty)* | eBay application client ID (see [Get eBay API Keys](#get-ebay-api-keys)) |
+| `EBAY_CERT_ID` | *(empty)* | eBay application client secret |
 | `POLL_INTERVAL_MIN` | `5` | Minimum seconds between polls |
 | `POLL_INTERVAL_MAX` | `15` | Maximum seconds between polls |
 | `MIN_DEAL_SCORE` | `80` | Default minimum score for `/deals` |
 | `API_PORT` | `3000` | Express listen port |
 | `PROXIES` | *(empty)* | Comma-separated proxy URLs |
+
+---
+
+## Get eBay API Keys
+
+The app uses the [eBay Browse API](https://developer.ebay.com/api-docs/buy/browse/overview.html) for reliable listing discovery when API credentials are provided.
+
+1. Go to [https://developer.ebay.com](https://developer.ebay.com) and sign in (or create a free account).
+2. Navigate to **My Account → Application Keysets**.
+3. Create a new keyset for the **Production** environment.
+4. Copy your **App ID (Client ID)** into `EBAY_APP_ID` and your **Cert ID (Client Secret)** into `EBAY_CERT_ID` in your `.env` file.
+
+```
+EBAY_APP_ID=YourApp-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+EBAY_CERT_ID=YourCert-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+```
+
+> **Fallback**: If `EBAY_APP_ID` is not set, the app automatically falls back to HTML scraping and logs a warning. All functionality continues to work, but HTML scraping is more fragile and may be rate-limited by eBay.
 
 ---
 

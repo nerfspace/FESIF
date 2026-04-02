@@ -4,7 +4,7 @@
  * Uses Node.js built-in test runner.
  */
 
-const { test, describe } = require('node:test');
+const { test, describe, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
@@ -12,7 +12,9 @@ const {
   parseFeedback,
   parseSearchResults,
   parseSoldPrices,
+  parseApiResponse,
   randomUserAgent,
+  _tokenCache,
 } = require('./scraper');
 
 // ---------------------------------------------------------------------------
@@ -141,5 +143,167 @@ describe('parseSoldPrices', () => {
   test('returns empty array for no matches', () => {
     const prices = parseSoldPrices('<html></html>');
     assert.equal(prices.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseApiResponse() – eBay Browse API JSON parsing
+// ---------------------------------------------------------------------------
+describe('parseApiResponse', () => {
+  test('returns empty array for missing itemSummaries', () => {
+    assert.deepEqual(parseApiResponse({}), []);
+    assert.deepEqual(parseApiResponse({ itemSummaries: [] }), []);
+  });
+
+  test('parses a typical Browse API item', () => {
+    const data = {
+      itemSummaries: [
+        {
+          itemId: 'v1|123456789012|0',
+          title: 'Apple iPhone 14 Pro 256GB',
+          price: { value: '399.99', currency: 'USD' },
+          shippingOptions: [{ shippingCost: { value: '5.00', currency: 'USD' } }],
+          seller: { feedbackScore: 2500 },
+          categories: [{ categoryId: '9355', categoryName: 'Cell Phones & Smartphones' }],
+          itemWebUrl: 'https://www.ebay.com/itm/123456789012',
+        },
+      ],
+    };
+    const results = parseApiResponse(data);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].listing_id, '123456789012');
+    assert.equal(results[0].title, 'Apple iPhone 14 Pro 256GB');
+    assert.equal(results[0].price, 399.99);
+    assert.equal(results[0].shipping_cost, 5);
+    assert.equal(results[0].seller_feedback, 2500);
+    assert.equal(results[0].category, 'Cell Phones & Smartphones');
+    assert.equal(results[0].listing_url, 'https://www.ebay.com/itm/123456789012');
+  });
+
+  test('treats missing shippingOptions as 0 shipping cost', () => {
+    const data = {
+      itemSummaries: [
+        {
+          itemId: 'v1|222222222222|0',
+          title: 'Test Item',
+          price: { value: '50.00', currency: 'USD' },
+          itemWebUrl: 'https://www.ebay.com/itm/222222222222',
+        },
+      ],
+    };
+    const results = parseApiResponse(data);
+    assert.equal(results[0].shipping_cost, 0);
+  });
+
+  test('treats zero-value shippingCost as free shipping', () => {
+    const data = {
+      itemSummaries: [
+        {
+          itemId: 'v1|333333333333|0',
+          title: 'Free Ship Item',
+          price: { value: '25.00', currency: 'USD' },
+          shippingOptions: [{ shippingCost: { value: '0.00', currency: 'USD' } }],
+          itemWebUrl: 'https://www.ebay.com/itm/333333333333',
+        },
+      ],
+    };
+    const results = parseApiResponse(data);
+    assert.equal(results[0].shipping_cost, 0);
+  });
+
+  test('skips items with no price', () => {
+    const data = {
+      itemSummaries: [
+        {
+          itemId: 'v1|444444444444|0',
+          title: 'No Price Item',
+          itemWebUrl: 'https://www.ebay.com/itm/444444444444',
+        },
+      ],
+    };
+    assert.equal(parseApiResponse(data).length, 0);
+  });
+
+  test('skips items with zero or negative price', () => {
+    const data = {
+      itemSummaries: [
+        {
+          itemId: 'v1|555555555555|0',
+          title: 'Zero Price',
+          price: { value: '0.00', currency: 'USD' },
+          itemWebUrl: 'https://www.ebay.com/itm/555555555555',
+        },
+      ],
+    };
+    assert.equal(parseApiResponse(data).length, 0);
+  });
+
+  test('defaults missing seller and category fields to safe values', () => {
+    const data = {
+      itemSummaries: [
+        {
+          itemId: 'v1|666666666666|0',
+          title: 'Sparse Item',
+          price: { value: '10.00', currency: 'USD' },
+          itemWebUrl: 'https://www.ebay.com/itm/666666666666',
+        },
+      ],
+    };
+    const results = parseApiResponse(data);
+    assert.equal(results[0].seller_feedback, 0);
+    assert.equal(results[0].category, '');
+  });
+
+  test('parses multiple items correctly', () => {
+    const data = {
+      itemSummaries: [
+        {
+          itemId: 'v1|100000000001|0',
+          title: 'Item A',
+          price: { value: '10.00', currency: 'USD' },
+          itemWebUrl: 'https://www.ebay.com/itm/100000000001',
+        },
+        {
+          itemId: 'v1|100000000002|0',
+          title: 'Item B',
+          price: { value: '20.00', currency: 'USD' },
+          itemWebUrl: 'https://www.ebay.com/itm/100000000002',
+        },
+      ],
+    };
+    const results = parseApiResponse(data);
+    assert.equal(results.length, 2);
+    assert.equal(results[0].listing_id, '100000000001');
+    assert.equal(results[1].listing_id, '100000000002');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _tokenCache – OAuth2 token caching state
+// ---------------------------------------------------------------------------
+describe('_tokenCache', () => {
+  beforeEach(() => {
+    // Reset cache before each test in this suite
+    _tokenCache.token     = null;
+    _tokenCache.expiresAt = 0;
+  });
+
+  test('starts empty', () => {
+    assert.equal(_tokenCache.token, null);
+    assert.equal(_tokenCache.expiresAt, 0);
+  });
+
+  test('can be primed with a valid token', () => {
+    const ONE_HOUR_MS = 3_600_000;
+    _tokenCache.token     = 'fake-access-token';
+    _tokenCache.expiresAt = Date.now() + ONE_HOUR_MS;
+    assert.equal(_tokenCache.token, 'fake-access-token');
+    assert.ok(_tokenCache.expiresAt > Date.now());
+  });
+
+  test('expiresAt in the past signals a stale cache', () => {
+    _tokenCache.token     = 'old-token';
+    _tokenCache.expiresAt = Date.now() - 1; // already expired
+    assert.ok(_tokenCache.expiresAt < Date.now(), 'Token should be considered expired');
   });
 });
