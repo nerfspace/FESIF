@@ -22,6 +22,8 @@ services:
       POLL_INTERVAL_MIN: 5
       POLL_INTERVAL_MAX: 15
       EBAY_SEARCH_KEYWORD: "${EBAY_SEARCH_KEYWORD:-}"
+      EBAY_APP_ID: "${EBAY_APP_ID:-}"
+      EBAY_CERT_ID: "${EBAY_CERT_ID:-}"
     volumes:
       - db_data:/data
 
@@ -37,6 +39,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       DB_PATH: /data/fesif.db
+      EBAY_APP_ID: "${EBAY_APP_ID:-}"
+      EBAY_CERT_ID: "${EBAY_CERT_ID:-}"
     volumes:
       - db_data:/data
 

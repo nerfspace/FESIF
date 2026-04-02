@@ -3,6 +3,11 @@
  * shared/scraper.js
  * Low-level eBay HTTP helpers: user-agent rotation, proxy support,
  * search-result parsing, and sold-listing (comps) fetching.
+ *
+ * When EBAY_APP_ID and EBAY_CERT_ID are set, fetchNewListings() uses the
+ * official eBay Browse API (more reliable, no HTML scraping).  If the
+ * credentials are absent the function falls back to the legacy HTML-scraping
+ * path so the app still works without API keys.
  */
 
 const axios = require('axios');
@@ -94,9 +99,127 @@ function parseFeedback(text) {
 }
 
 // ---------------------------------------------------------------------------
+// eBay Browse API – OAuth2 token management
+// ---------------------------------------------------------------------------
+
+/**
+ * Cached OAuth2 token.  Mutated in-place so the exported reference stays
+ * valid for test code that reads the cache directly.
+ * @type {{ token: string|null, expiresAt: number }}
+ */
+const _tokenCache = { token: null, expiresAt: 0 };
+
+/**
+ * Obtain an OAuth2 client-credentials access token from eBay.
+ * Returns the cached token if it has not yet expired (60-second buffer).
+ *
+ * @returns {Promise<string>}
+ */
+async function getEbayToken() {
+  if (_tokenCache.token && Date.now() < _tokenCache.expiresAt) {
+    return _tokenCache.token;
+  }
+
+  const appId  = process.env.EBAY_APP_ID;
+  const certId = process.env.EBAY_CERT_ID;
+  const credentials = Buffer.from(`${appId}:${certId}`).toString('base64');
+
+  const { data } = await axios.post(
+    'https://api.ebay.com/identity/v1/oauth2/token',
+    'grant_type=client_credentials&scope=https%3A%2F%2Fapi.ebay.com%2Foauth%2Fapi_scope',
+    {
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      timeout: 15_000,
+    }
+  );
+
+  _tokenCache.token     = data.access_token;
+  _tokenCache.expiresAt = Date.now() + (data.expires_in - 60) * 1000;
+
+  return _tokenCache.token;
+}
+
+// ---------------------------------------------------------------------------
+// eBay Browse API – response parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert an eBay Browse API `search` response body into the standard
+ * listing shape used by the rest of the app.
+ *
+ * @param {object} data  Parsed JSON from the Browse API
+ * @returns {Array<{
+ *   listing_id: string,
+ *   title: string,
+ *   price: number,
+ *   shipping_cost: number,
+ *   seller_feedback: number,
+ *   category: string,
+ *   listing_url: string
+ * }>}
+ */
+function parseApiResponse(data) {
+  const items = data.itemSummaries || [];
+  return items
+    .map((item) => {
+      // itemId format: "v1|123456789012|0"  – extract the numeric part
+      const idMatch = (item.itemId || '').match(/v1\|(\d+)/);
+      const listing_id = idMatch ? idMatch[1] : (item.itemId || '');
+      if (!listing_id) return null;
+
+      const price = item.price ? parseFloat(item.price.value) : 0;
+      if (price <= 0) return null;
+
+      const shippingOpts = item.shippingOptions || [];
+      let shipping_cost = 0;
+      if (shippingOpts.length > 0) {
+        const costVal = shippingOpts[0].shippingCost && shippingOpts[0].shippingCost.value;
+        shipping_cost = costVal ? parseFloat(costVal) : 0;
+      }
+
+      return {
+        listing_id,
+        title:           item.title || '',
+        price,
+        shipping_cost,
+        seller_feedback: (item.seller && item.seller.feedbackScore) || 0,
+        category:        (item.categories && item.categories[0] && item.categories[0].categoryName) || '',
+        listing_url:     item.itemWebUrl || '',
+      };
+    })
+    .filter(Boolean);
+}
+
+// ---------------------------------------------------------------------------
 // Fetch and parse the first page of eBay search results sorted by newest
 // ---------------------------------------------------------------------------
+
 /**
+ * HTML-scraping fallback implementation (used when API keys are absent).
+ *
+ * @param {string} keyword
+ * @returns {Promise<Array<object>>}
+ */
+async function fetchNewListingsHtml(keyword) {
+  const params = new URLSearchParams({
+    _nkw: keyword,
+    _sop: '10',   // sort by newly listed
+    _pgn: '1',
+    _ipg: '60',
+  });
+  const url = `https://www.ebay.com/sch/i.html?${params}`;
+
+  const { data: html } = await axios.get(url, buildAxiosConfig());
+  return parseSearchResults(html);
+}
+
+/**
+ * Fetch new listings.  Uses the eBay Browse API when EBAY_APP_ID is set,
+ * otherwise falls back to HTML scraping.
+ *
  * @param {string} [keyword='']  eBay search keyword
  * @returns {Promise<Array<{
  *   listing_id: string,
@@ -109,16 +232,34 @@ function parseFeedback(text) {
  * }>>}
  */
 async function fetchNewListings(keyword = '') {
-  const params = new URLSearchParams({
-    _nkw: keyword,
-    _sop: '10',   // sort by newly listed
-    _pgn: '1',
-    _ipg: '60',
-  });
-  const url = `https://www.ebay.com/sch/i.html?${params}`;
+  const appId = process.env.EBAY_APP_ID;
 
-  const { data: html } = await axios.get(url, buildAxiosConfig());
-  return parseSearchResults(html);
+  if (!appId) {
+    console.warn(
+      '[scraper] EBAY_APP_ID not set – falling back to HTML scraping. ' +
+      'Set EBAY_APP_ID and EBAY_CERT_ID in .env for better reliability.'
+    );
+    return fetchNewListingsHtml(keyword);
+  }
+
+  const token = await getEbayToken();
+
+  const params = new URLSearchParams({
+    sort:  'newlyListed',
+    limit: '50',
+  });
+  if (keyword) params.set('q', keyword);
+  const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?${params}`;
+
+  const { data } = await axios.get(url, {
+    timeout: 15_000,
+    headers: {
+      Authorization:              `Bearer ${token}`,
+      'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+    },
+  });
+
+  return parseApiResponse(data);
 }
 
 /**
@@ -232,7 +373,9 @@ module.exports = {
   fetchSoldPrices,
   parseSearchResults,
   parseSoldPrices,
+  parseApiResponse,
   parsePrice,
   parseFeedback,
   randomUserAgent,
+  _tokenCache,
 };
