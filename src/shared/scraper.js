@@ -101,7 +101,6 @@ function parseFeedback(text) {
 // ---------------------------------------------------------------------------
 // eBay Browse API – OAuth2 token management
 // ---------------------------------------------------------------------------
-
 /**
  * Cached OAuth2 token.  Mutated in-place so the exported reference stays
  * valid for test code that reads the cache directly.
@@ -145,21 +144,12 @@ async function getEbayToken() {
 // ---------------------------------------------------------------------------
 // eBay Browse API – response parsing
 // ---------------------------------------------------------------------------
-
 /**
  * Convert an eBay Browse API `search` response body into the standard
  * listing shape used by the rest of the app.
  *
  * @param {object} data  Parsed JSON from the Browse API
- * @returns {Array<{
- *   listing_id: string,
- *   title: string,
- *   price: number,
- *   shipping_cost: number,
- *   seller_feedback: number,
- *   category: string,
- *   listing_url: string
- * }>}
+ * @returns {Array<{ listing_id: string, title: string, price: number, shipping_cost: number, seller_feedback: number, category: string, listing_url: string }>} 
  */
 function parseApiResponse(data) {
   const items = data.itemSummaries || [];
@@ -196,7 +186,6 @@ function parseApiResponse(data) {
 // ---------------------------------------------------------------------------
 // Fetch and parse the first page of eBay search results sorted by newest
 // ---------------------------------------------------------------------------
-
 /**
  * HTML-scraping fallback implementation (used when API keys are absent).
  *
@@ -221,15 +210,7 @@ async function fetchNewListingsHtml(keyword) {
  * otherwise falls back to HTML scraping.
  *
  * @param {string} [keyword='']  eBay search keyword
- * @returns {Promise<Array<{
- *   listing_id: string,
- *   title: string,
- *   price: number,
- *   shipping_cost: number,
- *   seller_feedback: number,
- *   category: string,
- *   listing_url: string
- * }>>}
+ * @returns {Promise<Array<{ listing_id: string, title: string, price: number, shipping_cost: number, seller_feedback: number, category: string, listing_url: string }>>}
  */
 async function fetchNewListings(keyword = '') {
   const appId = process.env.EBAY_APP_ID;
@@ -325,7 +306,6 @@ function parseSearchResults(html) {
 // ---------------------------------------------------------------------------
 // Fetch sold / completed listings for comparable sales (comps)
 // ---------------------------------------------------------------------------
-
 /**
  * Parse eBay Finding API findCompletedItems JSON response into an array of
  * sold prices.
@@ -403,7 +383,7 @@ async function fetchSoldPricesHtml(query) {
  * @param {string} query  Search string (brand + model)
  * @returns {Promise<number[]>}  Array of sold prices
  */
-async function fetchSoldPrices(query) {
+asynchronous function fetchSoldPrices(query) {
   if (process.env.EBAY_APP_ID) {
     return fetchSoldPricesApi(query);
   }
@@ -445,4 +425,4 @@ module.exports = {
   parseFeedback,
   randomUserAgent,
   _tokenCache,
-};
+;
