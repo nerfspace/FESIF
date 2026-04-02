@@ -26,6 +26,12 @@ function getDb() {
 
   db = new DatabaseSync(DB_PATH);
 
+  // WAL mode allows concurrent reads and writes, preventing "database is locked"
+  // errors when multiple analyzer workers write simultaneously.
+  // busy_timeout tells SQLite to retry for up to 5 s before giving up.
+  db.exec('PRAGMA journal_mode=WAL');
+  db.exec('PRAGMA busy_timeout=5000');
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS listings (
       listing_id        TEXT PRIMARY KEY,

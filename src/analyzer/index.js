@@ -4,7 +4,7 @@
  * BullMQ worker that consumes listing jobs and scores them.
  *
  * For each job:
- *   1. Fetch comparable sold prices from eBay
+ *   1. Fetch comparable sold prices from eBay (via Finding API when key is set)
  *   2. Run the full scoring pipeline
  *   3. Persist listing + score to SQLite
  */
@@ -15,6 +15,7 @@ const { createWorker } = require('../shared/queue');
 const { fetchSoldPrices } = require('../shared/scraper');
 const { scoreListingFull } = require('../shared/scoring');
 const { upsertListing, upsertScore } = require('../shared/db');
+const { checkAndIncrement } = require('../shared/rateLimiter');
 
 /**
  * Process a single listing job.
@@ -35,15 +36,27 @@ async function processJob(job) {
 
   console.log(`[analyzer] Processing ${listing_id}: "${title}" $${price}`);
 
-  // Step 3 – Fetch comparable sold prices
+  // Step 3 – Fetch comparable sold prices (respecting the daily API budget)
   let soldPrices = [];
   try {
     // Build a focused query from the title (first 6 words often captures brand + model)
     const query = title.split(/\s+/).slice(0, 6).join(' ');
-    soldPrices = await fetchSoldPrices(query);
-    console.log(
-      `[analyzer] ${listing_id}: ${soldPrices.length} comps found (query="${query}")`
-    );
+
+    // Only make the API call if we're still within the comps budget for today.
+    const allowed = process.env.EBAY_APP_ID
+      ? await checkAndIncrement('comps')
+      : true;   // HTML scraping has no daily cap
+
+    if (allowed) {
+      soldPrices = await fetchSoldPrices(query);
+      console.log(
+        `[analyzer] ${listing_id}: ${soldPrices.length} comps found (query="${query}")`
+      );
+    } else {
+      console.warn(
+        `[analyzer] ${listing_id}: comps budget exhausted for today — scoring without comps`
+      );
+    }
   } catch (err) {
     console.warn(`[analyzer] Could not fetch comps for ${listing_id}: ${err.message}`);
     // Continue with empty soldPrices – score will reflect low confidence

@@ -323,13 +323,83 @@ function parseSearchResults(html) {
 }
 
 // ---------------------------------------------------------------------------
+// eBay Finding API – sold / completed listings (comps)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the JSON response from eBay's Finding API `findCompletedItems` call
+ * into an array of sold prices.
+ *
+ * The Finding API returns a peculiar structure where every field is wrapped in
+ * a single-element array:
+ *   response.findCompletedItemsResponse[0].searchResult[0].item[*]
+ *     .sellingStatus[0].convertedCurrentPrice[0].__value__
+ *
+ * @param {object} data  Parsed JSON from the Finding API
+ * @returns {number[]}   Array of sold prices (> 0 only)
+ */
+function parseFindingApiSoldPrices(data) {
+  try {
+    const items =
+      data?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item || [];
+    return items
+      .map((item) => {
+        const priceObj =
+          item?.sellingStatus?.[0]?.convertedCurrentPrice?.[0];
+        return priceObj ? parseFloat(priceObj.__value__) : 0;
+      })
+      .filter((p) => p > 0);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch sold prices using the eBay Finding API `findCompletedItems` endpoint.
+ * Requires EBAY_APP_ID to be set.
+ *
+ * @param {string} query  Search string (brand + model)
+ * @returns {Promise<number[]>}
+ */
+async function fetchSoldPricesApi(query) {
+  const appId = process.env.EBAY_APP_ID;
+
+  // Build the query string manually so that itemFilter(0) parentheses are
+  // NOT percent-encoded — eBay's Finding API requires the literal form.
+  const qsParts = [
+    'OPERATION-NAME=findCompletedItems',
+    'SERVICE-VERSION=1.0.0',
+    `SECURITY-APPNAME=${encodeURIComponent(appId)}`,
+    'RESPONSE-DATA-FORMAT=JSON',
+    `keywords=${encodeURIComponent(query)}`,
+    'itemFilter(0).name=SoldItemsOnly',
+    'itemFilter(0).value=true',
+    'paginationInput.entriesPerPage=40',
+    'sortOrder=EndTimeSoonest',
+  ];
+  const url = `https://svcs.ebay.com/services/search/FindingService/v1?${qsParts.join('&')}`;
+
+  const { data } = await axios.get(url, { timeout: 15_000 });
+  return parseFindingApiSoldPrices(data);
+}
+
+// ---------------------------------------------------------------------------
 // Fetch sold / completed listings for comparable sales (comps)
 // ---------------------------------------------------------------------------
 /**
+ * Fetch comparable sold prices.
+ * Uses the eBay Finding API when EBAY_APP_ID is set, otherwise falls back to
+ * HTML scraping.
+ *
  * @param {string} query  Search string (brand + model)
  * @returns {Promise<number[]>}  Array of sold prices
  */
 async function fetchSoldPrices(query) {
+  if (process.env.EBAY_APP_ID) {
+    return fetchSoldPricesApi(query);
+  }
+
+  // HTML-scraping fallback (no API keys configured)
   const params = new URLSearchParams({
     _nkw: query,
     LH_Sold: '1',
@@ -374,6 +444,7 @@ module.exports = {
   parseSearchResults,
   parseSoldPrices,
   parseApiResponse,
+  parseFindingApiSoldPrices,
   parsePrice,
   parseFeedback,
   randomUserAgent,
