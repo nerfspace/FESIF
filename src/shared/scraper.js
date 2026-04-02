@@ -176,7 +176,7 @@ function parseApiResponse(data) {
       const shippingOpts = item.shippingOptions || [];
       let shipping_cost = 0;
       if (shippingOpts.length > 0) {
-        const costVal = shippingOpts[0].shippingCost && shippingOpts[0].shippingCost.value;
+        const costVal = shippingOpts[0]?.shippingCost?.value;
         shipping_cost = costVal ? parseFloat(costVal) : 0;
       }
 
@@ -185,8 +185,8 @@ function parseApiResponse(data) {
         title:           item.title || '',
         price,
         shipping_cost,
-        seller_feedback: (item.seller && item.seller.feedbackScore) || 0,
-        category:        (item.categories && item.categories[0] && item.categories[0].categoryName) || '',
+        seller_feedback: item.seller?.feedbackScore || 0,
+        category:        item.categories?.[0]?.categoryName || '',
         listing_url:     item.itemWebUrl || '',
       };
     })

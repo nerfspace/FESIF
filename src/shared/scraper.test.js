@@ -294,8 +294,9 @@ describe('_tokenCache', () => {
   });
 
   test('can be primed with a valid token', () => {
+    const ONE_HOUR_MS = 3_600_000;
     _tokenCache.token     = 'fake-access-token';
-    _tokenCache.expiresAt = Date.now() + 3_600_000; // 1 hour from now
+    _tokenCache.expiresAt = Date.now() + ONE_HOUR_MS;
     assert.equal(_tokenCache.token, 'fake-access-token');
     assert.ok(_tokenCache.expiresAt > Date.now());
   });
