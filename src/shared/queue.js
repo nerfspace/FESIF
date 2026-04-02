@@ -36,7 +36,8 @@ async function enqueueListings(queue, payload) {
   await queue.add('listing', payload, {
     // Deduplicate by listing_id so the same listing is not processed twice
     // even if the poller accidentally emits it more than once.
-    jobId: payload.listing_id,
+    // Prefix with "listing-" because BullMQ rejects purely numeric job IDs.
+    jobId: `listing-${payload.listing_id}`,
     removeOnComplete: { count: 1000 },
     removeOnFail: { count: 500 },
   });
