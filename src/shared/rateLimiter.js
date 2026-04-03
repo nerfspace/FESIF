@@ -30,9 +30,10 @@ function getRedis() {
   _redis = new Redis({
     host:              process.env.REDIS_HOST || '127.0.0.1',
     port:              Number(process.env.REDIS_PORT) || 6379,
-    lazyConnect:       true,
-    enableOfflineQueue: false,
-    maxRetriesPerRequest: 1,
+    maxRetriesPerRequest: 3,
+    retryStrategy(times) {
+      return Math.min(times * 200, 2000);
+    },
   });
   return _redis;
 }
@@ -80,15 +81,20 @@ async function checkAndIncrement(type) {
   const key    = `ebay:api:${type}:${todayKey()}`;
   const redis  = getRedis();
 
-  const result = await redis.eval(
-    CHECK_AND_INCREMENT_SCRIPT,
-    1,          // number of KEYS arguments
-    key,        // KEYS[1]
-    budget,     // ARGV[1]
-    TTL_SECONDS // ARGV[2]
-  );
-
-  return result === 1;
+  try {
+    const result = await redis.eval(
+      CHECK_AND_INCREMENT_SCRIPT,
+      1,          // number of KEYS arguments
+      key,        // KEYS[1]
+      budget,     // ARGV[1]
+      TTL_SECONDS // ARGV[2]
+    );
+    return result === 1;
+  } catch (err) {
+    // If Redis is temporarily unavailable, allow the call rather than blocking
+    console.warn(`[rateLimiter] Redis error (allowing call): ${err.message}`);
+    return true;
+  }
 }
 
 /**
@@ -97,17 +103,22 @@ async function checkAndIncrement(type) {
  */
 async function getDailyCounts() {
   const redis = getRedis();
-  const date  = todayKey();
-  const [poll, comps] = await redis.mget(
-    `ebay:api:poll:${date}`,
-    `ebay:api:comps:${date}`,
-  );
-  return {
-    poll:        Number(poll  || 0),
-    comps:       Number(comps || 0),
-    pollBudget:  POLL_BUDGET,
-    compsBudget: COMPS_BUDGET,
-  };
+  try {
+    const date  = todayKey();
+    const [poll, comps] = await redis.mget(
+      `ebay:api:poll:${date}`,
+      `ebay:api:comps:${date}`,
+    );
+    return {
+      poll:        Number(poll  || 0),
+      comps:       Number(comps || 0),
+      pollBudget:  POLL_BUDGET,
+      compsBudget: COMPS_BUDGET,
+    };
+  } catch (err) {
+    console.warn(`[rateLimiter] Redis error (returning zeros): ${err.message}`);
+    return { poll: 0, comps: 0, pollBudget: POLL_BUDGET, compsBudget: COMPS_BUDGET };
+  }
 }
 
 module.exports = { checkAndIncrement, getDailyCounts, POLL_BUDGET, COMPS_BUDGET };
