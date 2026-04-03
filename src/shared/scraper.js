@@ -151,15 +151,7 @@ async function getEbayToken() {
  * listing shape used by the rest of the app.
  *
  * @param {object} data  Parsed JSON from the Browse API
- * @returns {Array<{
- *   listing_id: string,
- *   title: string,
- *   price: number,
- *   shipping_cost: number,
- *   seller_feedback: number,
- *   category: string,
- *   listing_url: string
- * }>}
+ * @returns {Array<{ listing_id: string, title: string, price: number, shipping_cost: number, seller_feedback: number, category: string, listing_url: string }>} 
  */
 function parseApiResponse(data) {
   const items = data.itemSummaries || [];
@@ -221,15 +213,7 @@ async function fetchNewListingsHtml(keyword) {
  * otherwise falls back to HTML scraping.
  *
  * @param {string} [keyword='']  eBay search keyword
- * @returns {Promise<Array<{
- *   listing_id: string,
- *   title: string,
- *   price: number,
- *   shipping_cost: number,
- *   seller_feedback: number,
- *   category: string,
- *   listing_url: string
- * }>>}
+ * @returns {Promise<Array<{ listing_id: string, title: string, price: number, shipping_cost: number, seller_feedback: number, category: string, listing_url: string }>>}
  */
 async function fetchNewListings(keyword = '') {
   const appId = process.env.EBAY_APP_ID;
@@ -358,6 +342,9 @@ function parseFindingApiSoldPrices(data) {
  * Fetch sold prices using the eBay Finding API `findCompletedItems` endpoint.
  * Requires EBAY_APP_ID to be set.
  *
+ * NOTE: findCompletedItems only supports EndTimeNewest sort, NOT EndTimeSoonest.
+ * Using EndTimeSoonest causes a 500 Internal Server Error from eBay.
+ *
  * @param {string} query  Search string (brand + model)
  * @returns {Promise<number[]>}
  */
@@ -375,7 +362,7 @@ async function fetchSoldPricesApi(query) {
     'itemFilter(0).name=SoldItemsOnly',
     'itemFilter(0).value=true',
     'paginationInput.entriesPerPage=40',
-    'sortOrder=EndTimeSoonest',
+    'sortOrder=EndTimeNewest',
   ];
   const url = `https://svcs.ebay.com/services/search/FindingService/v1?${qsParts.join('&')}`;
 
